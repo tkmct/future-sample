@@ -1,12 +1,15 @@
 #[macro_use]
 extern crate futures;
 extern crate tokio;
+extern crate web3;
 
 use futures::{future, Async, Future, Poll, Stream};
 use std::fmt;
 use std::time::Duration;
 use tokio::timer::Interval;
 
+use web3::types::FilterBuilder;
+use web3::{transports, Web3};
 
 struct Event {
     pub name: String,
@@ -27,12 +30,14 @@ impl fmt::Display for Event {
 
 struct EventWatcher {
     interval: Interval,
+    web3: Web3<transports::Http>,
 }
 
 impl EventWatcher {
-    pub fn new(duration: Duration) -> Self {
+    pub fn new(duration: Duration, web3: Web3<transports::Http>) -> Self {
         EventWatcher {
             interval: Interval::new_interval(duration),
+            web3,
         }
     }
 }
@@ -43,7 +48,11 @@ impl Stream for EventWatcher {
 
 
     fn poll(&mut self) -> Poll<Option<Event>, ()> {
-        try_ready!(self.interval.poll().map_err(|_| ()));
+        println!("poll");
+        let filter = FilterBuilder::default().build();
+        let logs = self.web3.eth().logs(filter).poll();
+        // let logs = try_ready!(self.web3.eth().logs(filter).poll().map_err(|_| ()));
+        println!("{:?}", logs);
 
         let event = Event::new("ValueSet".to_owned());
         Ok(Async::Ready(Some(event)))
@@ -87,16 +96,13 @@ where
 
 fn main() {
     println!("Started");
-    let watcher = EventWatcher::new(Duration::from_secs(1));
+    let (_eloop, transport) = web3::transports::Http::new("http://localhost:9545").unwrap();
+    let web3 = web3::Web3::new(transport);
+    let watcher = EventWatcher::new(Duration::from_secs(1), web3);
     let displayer = EventDisplay::new(watcher);
-
-    let watcher2 = EventWatcher::new(Duration::from_secs(2));
-    let displayer2 = EventDisplay::new(watcher2);
-
 
     tokio::run(future::lazy(|| {
         tokio::spawn(displayer);
-        tokio::spawn(displayer2);
         Ok(())
     }));
     println!("Terminated");
