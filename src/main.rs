@@ -50,8 +50,8 @@ impl Stream for EventWatcher {
     fn poll(&mut self) -> Poll<Option<Event>, ()> {
         println!("poll");
         let filter = FilterBuilder::default().build();
-        let logs = self.web3.eth().logs(filter).poll();
-        // let logs = try_ready!(self.web3.eth().logs(filter).poll().map_err(|_| ()));
+        try_ready!(self.interval.poll().map_err(|_| ()));
+        let logs = self.web3.eth().logs(filter).wait().map_err(|_| ());
         println!("{:?}", logs);
 
         let event = Event::new("ValueSet".to_owned());
@@ -79,7 +79,7 @@ where
     type Error = T::Error;
 
     fn poll(&mut self) -> Poll<(), Self::Error> {
-        while self.curr < 10 {
+        while self.curr < 100 {
             let value = match try_ready!(self.stream.poll()) {
                 Some(value) => value,
                 None => break,
@@ -100,6 +100,7 @@ fn main() {
     let web3 = web3::Web3::new(transport);
     let watcher = EventWatcher::new(Duration::from_secs(1), web3);
     let displayer = EventDisplay::new(watcher);
+
 
     tokio::run(future::lazy(|| {
         tokio::spawn(displayer);
