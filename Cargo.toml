@@ -1,0 +1,13 @@
+[package]
+name = "future-sample"
+version = "0.1.0"
+authors = ["tkmct <1220t.takamichi@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+futures = "0.1.27"
+tokio = "0.1.21"
+web3 = { git = "https://github.com/tomusdrw/rust-web3" }
+serde = { version="1.0.90", features = ["derive"] }
+ethereum-types = "0.5.2"
+ethabi = "7.0.0"
