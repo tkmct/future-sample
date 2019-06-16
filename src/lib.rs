@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate futures;
+extern crate ethabi;
 extern crate tokio;
 extern crate web3;
 

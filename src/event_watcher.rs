@@ -1,9 +1,9 @@
+use ethabi::{Event, Topic, TopicFilter};
 use ethereum_types::Address;
 use futures::{Async, Future, Poll, Stream};
 use std::marker::Send;
 use std::time::Duration;
 use tokio::timer::Interval;
-
 use web3::types::{FilterBuilder, Log};
 use web3::{transports, Web3};
 
@@ -11,13 +11,20 @@ pub struct EventFetcher {
     interval: Interval,
     web3: Web3<transports::Http>,
     address: Address,
+    abi: Vec<Event>,
 }
 
 impl EventFetcher {
-    pub fn new(web3: Web3<transports::Http>, address: Address, duration: Duration) -> Self {
+    pub fn new(
+        web3: Web3<transports::Http>,
+        address: Address,
+        abi: Vec<Event>,
+        duration: Duration,
+    ) -> Self {
         EventFetcher {
             interval: Interval::new_interval(duration),
             address,
+            abi,
             web3,
         }
     }
@@ -28,18 +35,32 @@ impl Stream for EventFetcher {
     type Error = ();
 
     fn poll(&mut self) -> Poll<Option<Vec<Log>>, ()> {
-        let filter = FilterBuilder::default().address(vec![self.address]).build();
         try_ready!(self.interval.poll().map_err(|_| ()));
+        let mut logs: Vec<web3::types::Log> = vec![];
+        for event in self.abi.iter() {
+            let filter = FilterBuilder::default()
+                .address(vec![self.address])
+                .topic_filter(TopicFilter {
+                    topic0: Topic::This(event.signature()),
+                    topic1: Topic::Any,
+                    topic2: Topic::Any,
+                    topic3: Topic::Any,
+                })
+                .build();
 
-        let logs = match self.web3.eth().logs(filter).wait().map_err(|e| e) {
-            Ok(v) => Some(v),
-            Err(e) => {
-                println!("{}", e);
-                None
-            }
-        };
+            let _ = match self.web3.eth().logs(filter).wait().map_err(|e| e) {
+                Ok(v) => {
+                    logs.extend_from_slice(&v);
+                    Some(v)
+                }
+                Err(e) => {
+                    println!("{}", e);
+                    None
+                }
+            };
+        }
 
-        Ok(Async::Ready(logs))
+        Ok(Async::Ready(Some(logs)))
     }
 }
 
