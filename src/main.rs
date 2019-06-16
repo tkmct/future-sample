@@ -12,12 +12,6 @@ use tokio::timer::Interval;
 use web3::types::{FilterBuilder, Log};
 use web3::{transports, Web3};
 
-impl fmt::Display for Event {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Event {}", self.name)
-    }
-}
-
 struct EventFetcher {
     interval: Interval,
     web3: Web3<transports::Http>,
