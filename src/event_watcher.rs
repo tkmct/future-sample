@@ -1,36 +1,49 @@
+use super::event_db::EventDB;
 use ethabi::{Event, Topic, TopicFilter};
 use ethereum_types::Address;
 use futures::{Async, Future, Poll, Stream};
 use std::marker::Send;
 use std::time::Duration;
 use tokio::timer::Interval;
-use web3::types::{FilterBuilder, Log};
+use web3::types::{BlockNumber, FilterBuilder, Log};
 use web3::{transports, Web3};
 
-pub struct EventFetcher {
+pub struct EventFetcher<T>
+where
+    T: EventDB,
+{
     interval: Interval,
     web3: Web3<transports::Http>,
     address: Address,
     abi: Vec<Event>,
+    db: T,
 }
 
-impl EventFetcher {
+impl<T> EventFetcher<T>
+where
+    T: EventDB,
+{
     pub fn new(
         web3: Web3<transports::Http>,
         address: Address,
         abi: Vec<Event>,
         duration: Duration,
+        db: T,
     ) -> Self {
         EventFetcher {
             interval: Interval::new_interval(duration),
             address,
             abi,
             web3,
+            db,
         }
     }
 }
 
-impl Stream for EventFetcher {
+impl<T> Stream for EventFetcher<T>
+where
+    T: EventDB,
+{
     type Item = Vec<Log>;
     type Error = ();
 
@@ -38,8 +51,14 @@ impl Stream for EventFetcher {
         try_ready!(self.interval.poll().map_err(|_| ()));
         let mut logs: Vec<web3::types::Log> = vec![];
         for event in self.abi.iter() {
+            let sig = event.signature();
+            let from_block: u64 = match self.db.get_last_logged_block(sig) {
+                Some(n) => n,
+                None => 0,
+            };
             let filter = FilterBuilder::default()
                 .address(vec![self.address])
+                .from_block(BlockNumber::Number(from_block))
                 .topic_filter(TopicFilter {
                     topic0: Topic::This(event.signature()),
                     topic1: Topic::Any,
@@ -64,14 +83,20 @@ impl Stream for EventFetcher {
     }
 }
 
-pub struct EventWatcher {
-    stream: EventFetcher,
+pub struct EventWatcher<T>
+where
+    T: EventDB,
+{
+    stream: EventFetcher<T>,
     // TODO: make listeners future
     listeners: Vec<Box<dyn Fn(&Log) -> () + Send>>,
 }
 
-impl EventWatcher {
-    pub fn new(stream: EventFetcher) -> EventWatcher {
+impl<T> EventWatcher<T>
+where
+    T: EventDB,
+{
+    pub fn new(stream: EventFetcher<T>) -> EventWatcher<T> {
         EventWatcher {
             stream,
             listeners: vec![],
@@ -84,7 +109,10 @@ impl EventWatcher {
     }
 }
 
-impl Future for EventWatcher {
+impl<T> Future for EventWatcher<T>
+where
+    T: EventDB,
+{
     type Item = ();
     type Error = ();
 
@@ -92,7 +120,7 @@ impl Future for EventWatcher {
         loop {
             let logs = match try_ready!(self.stream.poll()) {
                 Some(value) => value,
-                None => break,
+                None => continue,
             };
 
             for log in logs.iter() {
@@ -102,8 +130,6 @@ impl Future for EventWatcher {
                 }
             }
         }
-
-        println!("poll ended");
 
         Ok(Async::Ready(()))
     }

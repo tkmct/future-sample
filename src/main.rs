@@ -4,6 +4,7 @@ extern crate tokio;
 
 use ethabi::{Event, EventParam, ParamType};
 use ethereum_types::Address;
+use future_sample::event_db::DefaultEventDB;
 use future_sample::event_watcher::{EventFetcher, EventWatcher};
 use futures::future;
 use std::time::Duration;
@@ -52,7 +53,8 @@ fn main() {
 
     let (_eloop, transport) = web3::transports::Http::new("http://localhost:9545").unwrap();
     let web3 = web3::Web3::new(transport);
-    let fetcher = EventFetcher::new(web3, address, abi, Duration::from_secs(1));
+    let db = DefaultEventDB::new();
+    let fetcher = EventFetcher::new(web3, address, abi, Duration::from_secs(1), db);
     let mut watcher = EventWatcher::new(fetcher);
 
     watcher.subscribe(Box::new(|_log| {
