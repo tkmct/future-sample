@@ -38,6 +38,23 @@ where
             db,
         }
     }
+
+    fn filter_events(&self, event: &Event, logs: Vec<Log>) -> Vec<Log> {
+        if let Some(last_logged_block) = self.db.get_last_logged_block(event.signature()) {
+            logs.iter()
+                .filter(|&log| {
+                    if let Some(n) = log.block_number {
+                        n.low_u64() > last_logged_block
+                    } else {
+                        false
+                    }
+                })
+                .cloned()
+                .collect()
+        } else {
+            logs.clone()
+        }
+    }
 }
 
 impl<T> Stream for EventFetcher<T>
@@ -49,7 +66,8 @@ where
 
     fn poll(&mut self) -> Poll<Option<Vec<Log>>, ()> {
         try_ready!(self.interval.poll().map_err(|_| ()));
-        let mut logs: Vec<web3::types::Log> = vec![];
+        let mut all_logs: Vec<web3::types::Log> = vec![];
+
         for event in self.abi.iter() {
             let sig = event.signature();
             let from_block: u64 = match self.db.get_last_logged_block(sig) {
@@ -67,19 +85,27 @@ where
                 })
                 .build();
 
-            let _ = match self.web3.eth().logs(filter).wait().map_err(|e| e) {
+            match self.web3.eth().logs(filter).wait().map_err(|e| e) {
                 Ok(v) => {
-                    logs.extend_from_slice(&v);
-                    Some(v)
+                    let events = self.filter_events(event, v);
+                    match events.last() {
+                        Some(last_event) => {
+                            if let Some(block_num) = last_event.block_number {
+                                self.db.set_last_logged_block(sig, block_num.low_u64());
+                            };
+                        }
+                        None => (),
+                    };
+
+                    all_logs.extend_from_slice(&events);
                 }
                 Err(e) => {
                     println!("{}", e);
-                    None
                 }
             };
         }
 
-        Ok(Async::Ready(Some(logs)))
+        Ok(Async::Ready(Some(all_logs)))
     }
 }
 
